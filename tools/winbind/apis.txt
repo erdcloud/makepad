@@ -1346,6 +1346,8 @@ Windows.Win32.Graphics.Direct3D11.D3D11_VPOV_DIMENSION_TEXTURE2D
 Windows.Win32.Graphics.Dxgi.Common.DXGI_FORMAT_NV12
 # CEF windowless frame pacing (1 ms timer resolution while browsers live)
 Windows.Win32.Media.timeBeginPeriod
+# Cx session loop: the 1 ms period is ended with the offscreen session
+Windows.Win32.Media.timeEndPeriod
 # app_host: hosted children die with their host (job object)
 Windows.Win32.System.JobObjects.CreateJobObjectW
 Windows.Win32.System.JobObjects.AssignProcessToJobObject

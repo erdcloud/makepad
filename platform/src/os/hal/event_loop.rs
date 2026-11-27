@@ -36,6 +36,41 @@ fn batch_interval() -> Option<std::time::Duration> {
     })
 }
 
+/// The system timer at 1 ms while held (Windows; `timeBeginPeriod` / `timeEndPeriod`). The
+/// session loop holds one when no display paces its beats: its waits between beats are timed,
+/// and Windows ends a timed wait on the next timer tick, 15.625 ms apart by default.
+/// `MAKEPAD_NO_TIMER_PERIOD=1` leaves the resolution alone (to measure the difference).
+struct TimerPeriod {
+    #[cfg(windows)]
+    held: bool,
+}
+
+impl TimerPeriod {
+    fn fine() -> Self {
+        #[cfg(windows)]
+        {
+            if std::env::var_os("MAKEPAD_NO_TIMER_PERIOD").is_some() {
+                return Self { held: false };
+            }
+            // SAFETY: a plain winmm call, undone in Drop
+            let held = unsafe { crate::windows::Win32::Media::timeBeginPeriod(1) } == 0;
+            Self { held }
+        }
+        #[cfg(not(windows))]
+        Self {}
+    }
+}
+
+impl Drop for TimerPeriod {
+    fn drop(&mut self) {
+        #[cfg(windows)]
+        if self.held {
+            // SAFETY: ends the period `fine` began
+            unsafe { crate::windows::Win32::Media::timeEndPeriod(1) };
+        }
+    }
+}
+
 /// A frame request the HAL has not answered for this long is made again.
 const REREQUEST: std::time::Duration = std::time::Duration::from_millis(500);
 /// How long a window close on its way holds the drawing back for the HAL's answer
@@ -256,6 +291,10 @@ impl Cx {
         #[cfg(any(target_vendor = "apple", target_os = "windows", target_os = "linux"))]
         self.hal.frames.w.game_out(0, makepad_hal::media::game_op::ENABLE, 0, 0, 0, 0, &[]);
         let display_clock = info.flags & info_flags::DISPLAY_CLOCK != 0;
+        // Windows without a display clock (offscreen windows, `MAKEPAD_HIDE_WINDOWS`) beat on
+        // timed pump waits; at the default 15.6 ms timer resolution they land on the system tick
+        // (beats 15.6 / 31.3 ms apart). A 1 ms period for the session's life fixes that.
+        let _timer_period = (!display_clock && !hosted).then(TimerPeriod::fine);
         // a batch renderer beats as the GPU completes frames, not 60 times a second
         let batch = batch_interval().filter(|_| !display_clock && !hosted);
         let period = batch.unwrap_or(BEAT);

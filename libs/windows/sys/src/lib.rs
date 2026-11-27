@@ -10595,6 +10595,11 @@ pub use import_timeBeginPeriod::call as timeBeginPeriod_raw;
 #[inline]
 pub unsafe fn timeBeginPeriod(uPeriod: u32) -> u32 {
 import_timeBeginPeriod::call(uPeriod)}
+mod import_timeEndPeriod { #[link(name = "WINMM", kind = "raw-dylib")] extern "system" { #[link_name = "timeEndPeriod"] pub fn call(uPeriod: u32) -> u32; } }
+pub use import_timeEndPeriod::call as timeEndPeriod_raw;
+#[inline]
+pub unsafe fn timeEndPeriod(uPeriod: u32) -> u32 {
+import_timeEndPeriod::call(uPeriod)}
 pub mod Audio {
 #[repr(transparent)]
 #[derive(Clone, Copy)]

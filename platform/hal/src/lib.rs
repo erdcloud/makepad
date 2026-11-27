@@ -108,6 +108,11 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, Weak};
 use std::time::Duration;
 
+/// The end of a timed [`Hal::pump`] wait that sleeps on a precise timer instead of the condvar
+/// (Windows, whose condvar waits overshoot by up to two timer ticks).
+#[cfg(windows)]
+const PRECISE_TAIL: Duration = Duration::from_millis(2);
+
 pub use session::{AppCaption, CAPTION_BADGE_ROOM, CloseAs, DomainLaunch, ExecRecord};
 
 /// What the relax host provides so a privileged session can start, stop and relaunch apps
@@ -809,6 +814,19 @@ impl Hal {
                     sig.counts.entry(sid).or_default().by_timeout += 1;
                     break;
                 }
+                // Windows: a condvar wait counts in whole milliseconds (rounded up) and ends on a
+                // timer tick, so it overshoots by up to two ms even at a 1 ms timer period. The
+                // wait stops PRECISE_TAIL early and sleeps the rest on the high-resolution
+                // waitable timer `thread::sleep` uses. News in that last stretch waits for it.
+                #[cfg(windows)]
+                if left <= PRECISE_TAIL {
+                    drop(sig);
+                    std::thread::sleep(left);
+                    sig = lock(&self.sig.signal);
+                    continue;
+                }
+                #[cfg(windows)]
+                let left = left - PRECISE_TAIL;
                 sig = cv.wait_timeout(sig, left).unwrap_or_else(|e| e.into_inner()).0;
             }
         }
