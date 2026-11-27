@@ -400,6 +400,16 @@ impl Renderer {
         self.gpu_baker.csm_config()
     }
 
+    /// The alpha the sky dome writes into the colour target (default 1).
+    /// A host whose own post-process repaints the sky where nothing was drawn
+    /// can set 0: what is later blended over the dome (a translucent edge,
+    /// a fading lock of hair) then leaves its coverage in the target's
+    /// alpha, where an opaque dome had already filled it to 1. The dome's
+    /// colour is written as before (the dome is not blended).
+    pub fn set_sky_alpha(&mut self, alpha: f32) {
+        self.sky_alpha = alpha.clamp(0.0, 1.0);
+    }
+
     /// Set the orbit-camera look-at depth the Realtime cascades tighten
     /// around. Pass `None` for first-person walk (village-scale ladder).
     pub fn set_csm_focus_distance(&mut self, focus: Option<f32>) {

@@ -50,7 +50,8 @@ script_mod! {
             let hash = fract(
                 sin(dot(v.xy + v.zz, vec2(12.9898, 78.233))) * 43758.5453
             )
-            return vec4(color + vec3(1.0, 1.0, 1.0) * ((hash - 0.5) * 0.008), 1.0)
+            // (alpha: Renderer::set_sky_alpha, in the cube colour's w)
+            return vec4(color + vec3(1.0, 1.0, 1.0) * ((hash - 0.5) * 0.008), self.color.w)
         }
     }
 
@@ -210,7 +211,8 @@ script_mod! {
                 let fog = 1.0 - exp(0.0 - self.sky_fog.x / max(v.y, 0.02))
                 sky_rgb = mix(sky_rgb, self.sky_fog_color, fog)
             }
-            return vec4(sky_rgb + vec3(1.0, 1.0, 1.0) * ((hash - 0.5) * 0.008), 1.0)
+            // (alpha: Renderer::set_sky_alpha, in the cube colour's w)
+            return vec4(sky_rgb + vec3(1.0, 1.0, 1.0) * ((hash - 0.5) * 0.008), self.color.w)
         }
     }
 

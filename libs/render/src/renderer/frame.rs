@@ -722,7 +722,8 @@ impl Renderer {
                     sa.cube.cube_pos = vec3(0.0, 0.0, 0.0);
                     sa.cube.cube_size = vec3(800.0, 800.0, 800.0);
                     // rgb: the authored palette's tint of the day dome.
-                    sa.cube.color = vec4(f.dome_tint.x, f.dome_tint.y, f.dome_tint.z, 1.0);
+                    // a: the alpha the dome writes (set_sky_alpha).
+                    sa.cube.color = vec4(f.dome_tint.x, f.dome_tint.y, f.dome_tint.z, self.sky_alpha);
                     sa.cube.depth_clip = 1.0;
                     sa.pz_y = f.pz_y;
                     sa.pz_x = f.pz_x;
@@ -775,7 +776,7 @@ impl Renderer {
                     draws.sky.cube.transform = transform;
                     draws.sky.cube.cube_pos = vec3(0.0, 0.0, 0.0);
                     draws.sky.cube.cube_size = vec3(800.0, 800.0, 800.0);
-                    draws.sky.cube.color = vec4(1.0, 1.0, 1.0, 1.0);
+                    draws.sky.cube.color = vec4(1.0, 1.0, 1.0, self.sky_alpha);
                     draws.sky.cube.depth_clip = 1.0;
                     // An authored dome is art: the HDR lane shows it at its
                     // authored brightness (linear, pre-divided by exposure).

@@ -503,6 +503,8 @@ pub struct Renderer {
     hdr_output: bool,
     /// This frame's metered exposure (HDR output only).
     hdr_exposure: f32,
+    /// See [`Renderer::set_sky_alpha`].
+    sky_alpha: f32,
     /// See [`Renderer::set_fxaa`].
     fxaa: bool,
     /// The HDR post chain (bloom + auto-exposure), see [`Renderer::run_post`].
@@ -804,6 +806,7 @@ impl Default for Renderer {
             texture_cache: Default::default(),
             hdr_output: false,
             hdr_exposure: 1.0,
+            sky_alpha: 1.0,
             fxaa: true,
             post: Default::default(),
             bloom: DEFAULT_BLOOM,
