@@ -93,6 +93,11 @@ impl Colliders {
         Self { boxes: Default::default(), mesh: Some(std::sync::Arc::new(ColliderMesh { positions, indices, min, max, fallback })) }
     }
 
+    /// Boxes only (no triangles kept): a [`PreparedStaticPreview::gpu_only`] model's colliders.
+    pub(super) fn from_boxes(boxes: Vec<(Vec3f, Vec3f)>) -> Self {
+        Self { boxes: std::sync::Arc::new(std::sync::OnceLock::from(boxes)), mesh: None }
+    }
+
     pub(super) fn boxes(&self) -> &[(Vec3f, Vec3f)] {
         self.boxes.get_or_init(|| {
             let Some(m) = &self.mesh else { return Vec::new() };
@@ -126,9 +131,38 @@ pub struct PreparedStaticPreview {
     pub(super) sky: Option<PreparedSky>,
     pub(super) liquids: std::sync::Arc<Vec<crate::model::LiquidSurface>>,
     pub(super) min: Vec3f, pub(super) max: Vec3f, pub(super) prelit: bool,
+    /// Triangles of the main mesh (what `install_static_preview` answers).
+    pub(super) triangles: usize,
+    /// [`Self::gpu_only`]: no CPU copy of the mesh after upload.
+    pub(super) gpu_only: bool,
 }
 
 impl PreparedStaticPreview {
+    /// Keep no CPU copy of this model's meshes once they are on the GPU: the model-space
+    /// `positions`/`mesh_indices` (picking, `Renderer::model_mesh`, triangle colliders) are
+    /// dropped now, and every geometry it uploads is [`Geometry::set_gpu_only`]. A resident
+    /// model then costs its GPU buffers and nothing more, instead of about three times that.
+    /// Collisions fall back to the model's part boxes. Not for models a light bake samples
+    /// (`lm_source`, built from an AO sidecar), which keep theirs. After a device loss
+    /// (`Event::GpuReset`) the model draws nothing: the owner installs it again. LODs follow.
+    pub fn gpu_only(mut self) -> Self {
+        if self.lm_source.is_some() {
+            return self;
+        }
+        let boxes = self.collider_parts.boxes().to_vec();
+        self.collider_parts = Colliders::from_boxes(boxes);
+        self.positions = Default::default();
+        self.mesh_indices = Default::default();
+        self.gpu_only = true;
+        self.lods = std::mem::take(&mut self.lods).into_iter().map(|(d, m)| (d, m.gpu_only())).collect();
+        self
+    }
+
+    /// Whether [`Self::gpu_only`] applies.
+    pub fn is_gpu_only(&self) -> bool {
+        self.gpu_only
+    }
+
     pub fn lod_distances(&self)->impl Iterator<Item=f32>+'_ {self.lods.iter().map(|(distance,_)|*distance)}
     pub fn triangles_at_distance(&self,distance:f32)->usize{
         let n=if distance.is_finite()&&distance>=0.{self.lods.partition_point(|(d,_)|*d<=distance)}else{0};
@@ -263,9 +297,10 @@ impl PreparedStaticPreview {
         }else{None};
         let positions=std::sync::Arc::new(positions);let occluder_parts=std::sync::Arc::new(occluder_parts);
         let collider_parts=Colliders::from_mesh(positions.clone(),mesh_indices.clone(),model.min,model.max,occluder_parts.clone());
+        let triangles=mesh_indices.len()/3;
         Ok(Self{lods:Vec::new(),morph:None,ao,lm_source,bake_stream,sdf,emitters:Default::default(),main,extra,positions,mesh_indices,
             authored_collisions:Default::default(),collider_parts,occluder_parts,anim_parts,driven_parts,sky,liquids:std::sync::Arc::new(std::mem::take(&mut model.liquids)),
-            min:model.min,max:model.max,prelit:model.prelit})
+            min:model.min,max:model.max,prelit:model.prelit,triangles,gpu_only:false})
     }
     /// The GPU textures this asset uploads, as (content hash, bytes), each
     /// once: identical images share one GPU texture across assets (see

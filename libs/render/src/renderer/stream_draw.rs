@@ -117,9 +117,8 @@ fn prepared_from_stream(mut mesh: StreamMesh, merge: bool) -> Result<(PreparedSt
     Ok((PreparedStaticPreview {
         lods: Vec::new(), morph: None, ao: None, lm_source: None, bake_stream: None, sdf: None, emitters: Default::default(),
         main, extra, positions: Default::default(),
-        // Only the length is read (the triangle count); the indices live in
-        // the layers.
-        mesh_indices: std::sync::Arc::new(vec![0; triangles * 3]),
+        // the indices live in the layers
+        mesh_indices: Default::default(), triangles, gpu_only: false,
         authored_collisions: Default::default(), collider_parts: Default::default(), occluder_parts: Default::default(),
         anim_parts: Vec::new(), driven_parts: Vec::new(), sky: None, liquids: Default::default(), min: mesh.min, max: mesh.max, prelit: false,
     }, casts, scene, merged_bytes))

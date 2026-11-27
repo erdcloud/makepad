@@ -132,8 +132,11 @@ impl D3d11 {
             max_window: [16384, 16384],
             max_buffer: (u32::MAX as u64) & !15,
             working_set: budget,
+            vendor_id: dev.vendor_id,
+            device_kind: dev.device_kind,
             ..Default::default()
         };
+        info.set_device_name(&dev.adapter_name);
         if shell.is_some() {
             // apps draw their own captions on Windows
             info.flags |= info_flags::DISPLAY_CLOCK | info_flags::CLIENT_CHROME;
@@ -452,6 +455,9 @@ impl exec::DeviceReset for D3d11 {
         self.word_arena = word_arena;
         self.dev = dev;
         self.info.working_set = self.dev.budget().map_or(0, |b| b.0);
+        self.info.vendor_id = self.dev.vendor_id;
+        self.info.device_kind = self.dev.device_kind;
+        self.info.set_device_name(&self.dev.adapter_name);
         crate::gpu_limits::set_gpu_working_set_bytes(self.info.working_set);
         Ok(())
     }

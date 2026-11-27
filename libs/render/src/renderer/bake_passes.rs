@@ -446,6 +446,7 @@ impl Renderer {
                 SETTLED_FRAMES.store(0, Ordering::Relaxed);
             }
         }
+        self.refresh_csm_static_casters();
         let csm_scene_bounds = self.csm_scene_bounds.or_else(|| {
             if self.world_atlas_required() { return None; }
             // An atlas no longer supplies the world bound. Include every

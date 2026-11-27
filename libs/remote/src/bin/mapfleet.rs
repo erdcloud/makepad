@@ -732,11 +732,7 @@ fn remote_worker(host: &str, shared: &Shared, config: &Config) {
 /// (including this one after backoff) can pick it up. The ledger check in
 /// claim_cell makes double-processing harmless.
 fn requeue(shared: &Shared, index: usize) {
-    let _ = shared
-        .next
-        .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |current| {
-            (current > index).then_some(index)
-        });
+    shared.next.fetch_min(index, Ordering::SeqCst);
 }
 
 fn remote_connect(host: &str) -> io::Result<TunnelConn> {

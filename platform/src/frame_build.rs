@@ -142,6 +142,9 @@ pub(crate) struct FrameBuilder {
     window_presenting: HashSet<(Id, u64)>,
     /// Packet serial -> (window/repaint group, pass name, closes the presented frame).
     pub(crate) timings: HashMap<u64, (u64, String, bool)>,
+    /// `Geometry::set_gpu_only` geometries this batch uploads: their CPU vectors are freed
+    /// right after it is submitted (`CxGeometryPool::release_gpu_only`).
+    pub(crate) gpu_only_uploaded: Vec<GeometryId>,
     pub(crate) info: HalInfo,
     strings: HashMap<String, StrId>,
     live_names: HashMap<u64, StrId>,
@@ -918,6 +921,11 @@ impl Cx {
             }
         }
         g.dirty = g.dirty_vertices || g.dirty_indices;
+        if g.gpu_only && (g.vertices.capacity_bytes() != 0 || g.indices.capacity_bytes() != 0) {
+            // `Geometry::set_gpu_only`: the CPU copy goes once the batch that reads it (the
+            // update commands borrow its bytes until `hal_submit`) is submitted
+            fb.gpu_only_uploaded.push(gid);
+        }
         let u32_indices = g.index_width == 4;
         let rec = fb.geo.get_mut(&slot).expect("inserted above");
         (rec.vb, rec.ib, rec.vb_bytes, rec.ib_bytes) = (vb, ib, vb_bytes, ib_bytes);

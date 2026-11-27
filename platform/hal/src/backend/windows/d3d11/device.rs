@@ -128,6 +128,11 @@ pub struct Device {
     pub factory: IDXGIFactory2,
     pub adapter3: Option<IDXGIAdapter3>,
     pub adapter_name: String,
+    /// the adapter's PCI vendor id (`DXGI_ADAPTER_DESC::VendorId`)
+    pub vendor_id: u32,
+    /// [`crate::types::device_kind`] of the adapter: discrete when it has video memory of its
+    /// own, integrated when only a carve-out, software for WARP / Basic Render
+    pub device_kind: u32,
     pub states: States,
     /// bit per HAL format the device can sample
     pub formats: u64,
@@ -138,6 +143,22 @@ pub struct Device {
     pub lost: AtomicBool,
     /// device-local bytes allocated by this backend (textures and buffers it made)
     pub allocated: AtomicU64,
+}
+
+/// Dedicated video memory above this means a GPU with memory of its own. Integrated parts report
+/// a carve-out: 128 MB on most Intel iGPUs, 512 MB (the BIOS's UMA frame buffer, sometimes 1 GB)
+/// on AMD APUs. DXGI has no integrated flag (D3D11.3's `UnifiedMemoryArchitecture` would say it).
+const DISCRETE_DEDICATED_BYTES: u64 = 1 << 30;
+
+/// What kind of GPU a DXGI adapter is, from its vendor and dedicated memory.
+pub fn adapter_kind(vendor_id: u32, dedicated: u64) -> u32 {
+    if vendor_id == 0x1414 {
+        device_kind::SOFTWARE
+    } else if dedicated > DISCRETE_DEDICATED_BYTES {
+        device_kind::DISCRETE
+    } else {
+        device_kind::INTEGRATED
+    }
 }
 
 impl Device {
@@ -160,13 +181,15 @@ impl Device {
                 }
                 i += 1;
             }
-            let adapter_name = adapter
-                .GetDesc()
+            let desc = adapter.GetDesc().ok();
+            let adapter_name = desc
                 .map(|d| {
                     let len = d.Description.iter().position(|c| *c == 0).unwrap_or(d.Description.len());
                     String::from_utf16_lossy(&d.Description[..len])
                 })
                 .unwrap_or_default();
+            let vendor_id = desc.map_or(0, |d| d.VendorId);
+            let device_kind = desc.map_or(device_kind::UNKNOWN, |d| adapter_kind(d.VendorId, d.DedicatedVideoMemory as u64));
             let mut device: Option<ID3D11Device> = None;
             let mut ctx: Option<ID3D11DeviceContext> = None;
             D3D11CreateDevice(
@@ -253,6 +276,8 @@ impl Device {
                 factory,
                 adapter3,
                 adapter_name,
+                vendor_id,
+                device_kind,
                 states,
                 formats,
                 renderable,
