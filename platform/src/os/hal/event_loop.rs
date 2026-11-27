@@ -90,6 +90,7 @@ impl Cx {
                 0x5143 => "qualcomm", 0x13b5 => "arm", 0x1010 => "imagination", 0x14e4 => "broadcom",
                 _ => "unknown",
             }.to_string();
+            crate::system_info::note_gpu_adapter(&name);
             self.gpu_info.renderer = name;
         }
         self.gpu_info.discrete = match info.device_kind {
