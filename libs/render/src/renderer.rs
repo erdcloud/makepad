@@ -326,6 +326,11 @@ pub struct Renderer {
     csm_static_casters: Vec<crate::gpu_lightmap::GpuBakeMesh>,
     /// Runs of `csm_static_casters` with their bounds (rebuilt with it).
     csm_static_blocks: Vec<crate::gpu_lightmap::CasterBlock>,
+    /// The two lists above are stale: a model was installed or unloaded, or the placed scene
+    /// changed. They are rebuilt once, where the cascades read them, not on every change (a
+    /// streamed terrain installs and unloads dozens of models a frame, and a rebuild walks
+    /// every resident model and placed instance).
+    csm_static_dirty: bool,
     /// The streamed world (stream.rs / renderer/stream_draw.rs), its build
     /// workers (kept across sources) and this frame's streamed shadow
     /// casters, appended to `csm_static_casters` for the cascades.
@@ -729,6 +734,7 @@ impl Default for Renderer {
             placed_models: Vec::new(),
             csm_static_casters: Vec::new(),
             csm_static_blocks: Vec::new(),
+            csm_static_dirty: false,
             stream: None,
             stream_workers: None,
             stream_casters: Vec::new(),

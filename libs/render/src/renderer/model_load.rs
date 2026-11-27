@@ -196,16 +196,17 @@ impl Renderer {
 
     /// Drop cached textures no loaded model references any more (the cache's
     /// refcount is the set of live models; O(models) and only on replace or
-    /// unload, never per frame).
+    /// unload, never per frame; the live ids are a set, so the cache's size
+    /// does not multiply it).
     pub(super) fn prune_texture_cache(&mut self) {
         if self.texture_cache.is_empty() {
             return;
         }
-        fn collect(m: &LoadedModel, out: &mut Vec<TextureId>) {
+        fn collect(m: &LoadedModel, out: &mut std::collections::HashSet<TextureId>) {
             let mut layer = |t: &Texture, d: &Texture, mat: &LayerMaterial| {
-                out.push(t.texture_id());
-                out.push(d.texture_id());
-                out.push(mat.orm.texture_id());
+                out.insert(t.texture_id());
+                out.insert(d.texture_id());
+                out.insert(mat.orm.texture_id());
                 if let Some(s) = &mat.surface {
                     out.extend([s.normal.texture_id(), s.occlusion.texture_id(), s.emissive.texture_id()]);
                     if let Some(p) = &s.splat {
@@ -224,7 +225,7 @@ impl Renderer {
                 collect(lod, out);
             }
         }
-        let mut live = Vec::new();
+        let mut live = std::collections::HashSet::new();
         for (_, m) in &self.static_models {
             collect(m, &mut live);
         }

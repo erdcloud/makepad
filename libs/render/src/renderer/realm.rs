@@ -35,6 +35,7 @@ impl Renderer {
         self.placed_prefix = None;
         self.csm_static_casters.clear();
         self.csm_static_blocks.clear();
+        self.csm_static_dirty = false;
         self.grass = None;
         self.world_attachments.clear();
         self.view_models.clear();
@@ -344,7 +345,8 @@ impl Renderer {
         StaticModel::from_aomesh(&std::fs::read(path).ok()?)
     }
 
-    /// Rebuild the static half of Realtime's CSM caster list.
+    /// Rebuild the static half of Realtime's CSM caster list (deferred: marks it stale, and
+    /// [`Self::refresh_csm_static_casters`] rebuilds it once before the cascades read it).
     ///
     /// With a world atlas, charted models already become `BakeState` meshes;
     /// without one this list owns those casters too, including every layer. Keeping it
@@ -352,6 +354,14 @@ impl Renderer {
     /// boundary instead of turning static architecture into a per-frame
     /// "mover" merely to get a shadow.
     pub(super) fn rebuild_csm_static_casters(&mut self) {
+        self.csm_static_dirty = true;
+    }
+
+    /// The deferred work of [`Self::rebuild_csm_static_casters`], when it is due.
+    pub(super) fn refresh_csm_static_casters(&mut self) {
+        if !std::mem::take(&mut self.csm_static_dirty) {
+            return;
+        }
         self.csm_static_casters.clear();
         // First entry per id, as the linear find it replaces (a forest is
         // thousands of copies of a few models; every model install rebuilds).
