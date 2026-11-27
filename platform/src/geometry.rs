@@ -118,6 +118,19 @@ impl CxGeometryPool {
     /// times a building mesh's index buffer), which is how a pan took the web
     /// map to 1 fps. Reported at the 1st, 10th, 100th… occurrence, never per
     /// frame.
+    /// After a submit: frees the CPU vectors of the `gpu_only` geometries it uploaded (still the
+    /// same geometry, and not given new data since).
+    pub(crate) fn release_gpu_only(&mut self, ids: &[GeometryId]) {
+        for id in ids {
+            let Some(d) = self.0.pool.get_mut(id.0) else { continue };
+            if d.generation != id.1 || !d.item.gpu_only || d.item.dirty_vertices || d.item.dirty_indices {
+                continue;
+            }
+            d.item.vertices = VertexData::default();
+            d.item.indices = IndexData::default();
+        }
+    }
+
     pub(crate) fn skip_stale(&mut self, id: GeometryId) -> bool {
         let live = self.0.pool.get(id.0).map_or(false, |d| d.generation == id.1);
         if live {
@@ -491,6 +504,15 @@ impl Geometry {
         cxgeom.dirty_indices = true;
     }
 
+    /// Keep no CPU copy: every upload of this geometry (the first, and each after an `update`)
+    /// frees its vertex and index vectors once the frame builder has handed them to the HAL.
+    /// For large static meshes nothing reads back (terrain chunks): their memory is then the
+    /// GPU's only. The data is gone for good, so after a device loss (`Event::GpuReset`) the
+    /// geometry draws nothing until the owner gives it data again.
+    pub fn set_gpu_only(&self, cx: &mut Cx, gpu_only: bool) {
+        cx.geometries[self.geometry_id()].gpu_only = gpu_only;
+    }
+
     /// Release the CPU staging vectors once the backend has consumed them.
     /// The resident GPU buffers remain authoritative. Calling this before an
     /// upload is harmless and leaves the vectors intact.
@@ -690,6 +712,9 @@ pub struct CxGeometry {
     pub dirty_indices: bool,
     pub logged_stride_mismatch: bool,
     pub logged_unsupported_typed: bool,
+    /// [`Geometry::set_gpu_only`]: the CPU vectors are freed as soon as the frame builder has
+    /// handed them to the HAL; only the GPU buffers (and the element counts) remain.
+    pub gpu_only: bool,
     /// Who made it (`Geometry::new`'s caller and the open `gpu_owner` scopes): the ledger and
     /// the GPU profiler name its vertex and index buffers by it.
     pub origin: crate::gpu_ledger::GpuOrigin,
@@ -713,11 +738,42 @@ impl Default for CxGeometry {
             dirty_indices: false,
             logged_stride_mismatch: false,
             logged_unsupported_typed: false,
+            gpu_only: false,
             origin: Default::default(),
             #[cfg(target_arch = "wasm32")]
             os: CxOsGeometry::default(),
         }
     }
+}
+
+#[cfg(test)]
+#[test]
+fn gpu_only_geometry_drops_its_cpu_copy_after_the_upload_only() {
+    let mut cx = Cx::new(Box::new(|_, _| {}));
+    let g = Geometry::new(&mut cx);
+    g.update(&mut cx, vec![0, 1, 2], vec![0.0; 9]);
+    g.set_gpu_only(&mut cx, true);
+    let id = g.geometry_id();
+    // not uploaded yet (dirty): kept
+    cx.geometries.release_gpu_only(&[id]);
+    assert!(g.cpu_buffer_bytes(&cx) > 0);
+    {
+        let cg = &mut cx.geometries[id];
+        (cg.dirty, cg.dirty_vertices, cg.dirty_indices) = (false, false, false);
+    }
+    cx.geometries.release_gpu_only(&[id]);
+    assert_eq!(g.cpu_buffer_bytes(&cx), 0);
+    // the counts the draws use stay
+    assert_eq!((cx.geometries[id].index_count, cx.geometries[id].vertex_count), (3, 9));
+    // an ordinary geometry keeps its copy
+    let k = Geometry::new(&mut cx);
+    k.update(&mut cx, vec![0, 1, 2], vec![0.0; 9]);
+    {
+        let cg = &mut cx.geometries[k.geometry_id()];
+        (cg.dirty, cg.dirty_vertices, cg.dirty_indices) = (false, false, false);
+    }
+    cx.geometries.release_gpu_only(&[k.geometry_id()]);
+    assert!(k.cpu_buffer_bytes(&cx) > 0);
 }
 
 #[cfg(test)]

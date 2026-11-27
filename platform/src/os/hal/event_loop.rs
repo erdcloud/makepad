@@ -553,6 +553,10 @@ impl Cx {
         }
         if !self.hal.frames.window_frames.is_empty() { makepad_hal::profile::submitted(); }
         hal_submit(&buf);
+        if !self.hal.frames.gpu_only_uploaded.is_empty() {
+            self.geometries.release_gpu_only(&self.hal.frames.gpu_only_uploaded);
+            self.hal.frames.gpu_only_uploaded.clear();
+        }
         self.hal.glyph_wait.presented.extend(self.hal.frames.window_frames.drain(..));
         self.hal.frames.submitted();
         // the HAL no longer calls the audio entries this batch replaced

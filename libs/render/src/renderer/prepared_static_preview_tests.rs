@@ -54,6 +54,19 @@ fn preparation_retains_geometry_and_derives_collision_off_ui() {
 }
 
 #[test]
+fn gpu_only_drops_the_cpu_mesh_and_keeps_the_count_and_boxes() {
+    let prepared = PreparedStaticPreview::prepare(triangle()).unwrap();
+    let boxes = prepared.collider_parts.boxes().to_vec();
+    let prepared = prepared.gpu_only();
+    assert!(prepared.is_gpu_only());
+    assert!(prepared.positions.is_empty() && prepared.mesh_indices.is_empty());
+    assert_eq!(prepared.triangles, 1);
+    assert_eq!(prepared.collider_parts.boxes(), &boxes[..]);
+    // the GPU-bound layer data is untouched
+    assert_eq!(prepared.main.indices, [0, 1, 2]);
+}
+
+#[test]
 fn preparation_rejects_bad_indices_positions_and_invalid_png() {
     let mut model = triangle();
     model.indices[2] = 999;
@@ -108,6 +121,7 @@ fn morph_shadow_casters_share_visible_weights_and_exclude_rest_duplicates() {
     assert_eq!(movers.len(),2);
     assert_eq!(movers[0].morph.as_ref().unwrap().weights[0].x,0.75);
     assert_eq!(movers[1].morph.as_ref().unwrap().weights[0].x,0.625);
+    renderer.refresh_csm_static_casters();
     assert!(renderer.csm_static_casters.is_empty());
     assert!(renderer.collect_local_static_casters(&mut cx,&World::default()).is_empty());
 }

@@ -132,8 +132,10 @@ impl Renderer {
             if let Some(texture)=cache.get(&prepared.hash){return texture.clone();}
             std::sync::Arc::try_unwrap(prepared).unwrap_or_else(|arc|(*arc).clone()).upload_cached(cx,cache)
         }
+        let gpu_only=prepared.gpu_only;
         let mut upload=|layer:PreparedStaticLayer| {
             let geometry=Geometry::new(cx);geometry.update(cx,layer.indices,layer.vertices);
+            if gpu_only{geometry.set_gpu_only(cx,true);}
             let shiny=layer.orm_on||layer.pbr.is_shiny();
             // Surface maps (normal, occlusion, emissive) share by content too:
             // terrain tiles carry the same material maps.
@@ -152,7 +154,7 @@ impl Renderer {
         let driven_parts=prepared.driven_parts.into_iter().map(|part|LoadedDrivenPart{def:part.def,
             draws:part.draws.into_iter().map(&mut upload).collect()}).collect();
         drop(upload);
-        let sky=prepared.sky.map(|part|{let geometry=Geometry::new(cx);geometry.update(cx,part.indices,part.vertices);
+        let sky=prepared.sky.map(|part|{let geometry=Geometry::new(cx);geometry.update(cx,part.indices,part.vertices);if gpu_only{geometry.set_gpu_only(cx,true);}
             LoadedSky{part:part.part,geometry:std::rc::Rc::new(geometry),tex0:upload_generated_texture(cx,part.tex0),tex1:upload_generated_texture(cx,part.tex1),
                 draw_trace:0,positions:part.positions,indices:part.mesh_indices}});
         let ao=prepared.ao.map(|image|upload_generated_texture(cx,image));
@@ -161,7 +163,7 @@ impl Renderer {
         let morph=prepared.morph.map(|m|m.upload(cx));
         let lods=prepared.lods.into_iter().map(|(distance,model)|(distance,self.upload_static_preview(cx,model))).collect();
         UploadedStaticPreview{lods,morph,ao,sdf,bake_geometry,lm_source:prepared.lm_source,emitters:prepared.emitters,geometry,texture,detail,detail_scale,material,wants_pbr,
-            prelit:prepared.prelit,triangles:prepared.mesh_indices.len()/3,min:prepared.min,max:prepared.max,
+            prelit:prepared.prelit,triangles:prepared.triangles,min:prepared.min,max:prepared.max,
             authored_collisions:prepared.authored_collisions,collider_parts:prepared.collider_parts,occluder_parts:prepared.occluder_parts,positions:prepared.positions,indices:prepared.mesh_indices,
             extra_draws,anim_parts,driven_parts,sky,liquids:prepared.liquids}
     }
