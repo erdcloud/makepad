@@ -505,6 +505,8 @@ pub struct Renderer {
     hdr_exposure: f32,
     /// See [`Renderer::set_sky_alpha`].
     sky_alpha: f32,
+    /// See [`Renderer::set_material_pressers`].
+    pub(crate) material_pressers: [Vec4f; crate::custom_material::PRESSERS],
     /// See [`Renderer::set_fxaa`].
     fxaa: bool,
     /// The HDR post chain (bloom + auto-exposure), see [`Renderer::run_post`].
@@ -807,6 +809,7 @@ impl Default for Renderer {
             hdr_output: false,
             hdr_exposure: 1.0,
             sky_alpha: 1.0,
+            material_pressers: [Vec4f::default(); crate::custom_material::PRESSERS],
             fxaa: true,
             post: Default::default(),
             bloom: DEFAULT_BLOOM,

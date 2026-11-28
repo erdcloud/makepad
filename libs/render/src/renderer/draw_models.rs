@@ -506,6 +506,7 @@ impl Renderer {
                         if wanted_custom.map(|m| m.name.as_str()) != Some(name) { continue; }
                         if let (ModelDraw::Custom(_, d), Some(material)) = (&mut draw, wanted_custom) {
                             d.draw.set_params(cx.cx, material.params);
+                            d.draw.set_pressers(cx.cx, &self.material_pressers);
                         }
                     }
                 } else if paints != splat_lane || if splat_lane {

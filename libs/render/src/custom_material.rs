@@ -22,10 +22,28 @@ pub struct DrawSceneCustom {
     #[deref] pub pbr: DrawScenePbr,
 }
 
+/// How many presser points a custom material's hooks can read
+/// (`self.press0` .. `self.press7`; Renderer::set_material_pressers).
+pub const PRESSERS: usize = 8;
+const PRESS_IDS: [LiveId; PRESSERS] = [live_id!(press0), live_id!(press1), live_id!(press2), live_id!(press3), live_id!(press4), live_id!(press5), live_id!(press6), live_id!(press7)];
+
 impl DrawSceneCustom {
     /// Set the material's four keyable floats (`self.params` in the hooks).
     pub fn set_params(&mut self, cx: &Cx, params: Vec4f) {
         self.pbr.skinned.draw_vars.set_uniform(cx, live_id!(params), &[params.x, params.y, params.z, params.w]);
+    }
+
+    /// Set the presser points (`self.press0` .. in the hooks).
+    pub fn set_pressers(&mut self, cx: &Cx, points: &[Vec4f; PRESSERS]) {
+        for (id, p) in PRESS_IDS.iter().zip(points) {
+            self.pbr.skinned.draw_vars.set_uniform(cx, *id, &[p.x, p.y, p.z, p.w]);
+        }
+    }
+
+    /// A presser point as last set.
+    pub fn presser(&self, cx: &Cx, k: usize) -> Vec4f {
+        let p = self.pbr.skinned.uniform_value(cx, PRESS_IDS[k]);
+        vec4(p[0], p[1], p[2], p[3])
     }
 
     /// The material's four keyable floats as last set.
@@ -55,6 +73,17 @@ script_mod! {
         // the instance stream they took the lane one output register past
         // what D3D11's `vs_5_0` allows, and they are one per material draw.
         params: uniform(vec4(0.0, 0.0, 0.0, 0.0))
+        // Points the hooks can press round (Renderer::set_material_pressers):
+        // true world xyz, w a radius (0 = none). Shared by every draw of a
+        // frame, so a uniform like `params`.
+        press0: uniform(vec4(0.0, 0.0, 0.0, 0.0))
+        press1: uniform(vec4(0.0, 0.0, 0.0, 0.0))
+        press2: uniform(vec4(0.0, 0.0, 0.0, 0.0))
+        press3: uniform(vec4(0.0, 0.0, 0.0, 0.0))
+        press4: uniform(vec4(0.0, 0.0, 0.0, 0.0))
+        press5: uniform(vec4(0.0, 0.0, 0.0, 0.0))
+        press6: uniform(vec4(0.0, 0.0, 0.0, 0.0))
+        press7: uniform(vec4(0.0, 0.0, 0.0, 0.0))
         // The control of an IBL program's two lookups (render-material's
         // lane functions read it; the renderer writes it per draw,
         // renderer/stock_ibl.rs): y = the lane's scale on the map (1 under
@@ -87,6 +116,16 @@ script_mod! {
         v_tint: varying(vec4f)
         tint: uniform(vec4(1.0, 1.0, 1.0, 1.0))
         eye: uniform(vec4(0.0, 0.0, 0.0, 0.0))
+        // (the material's presser points: none in the caster, the hook
+        // compiles against them; DrawSceneCustom)
+        press0: uniform(vec4(0.0, 0.0, 0.0, 0.0))
+        press1: uniform(vec4(0.0, 0.0, 0.0, 0.0))
+        press2: uniform(vec4(0.0, 0.0, 0.0, 0.0))
+        press3: uniform(vec4(0.0, 0.0, 0.0, 0.0))
+        press4: uniform(vec4(0.0, 0.0, 0.0, 0.0))
+        press5: uniform(vec4(0.0, 0.0, 0.0, 0.0))
+        press6: uniform(vec4(0.0, 0.0, 0.0, 0.0))
+        press7: uniform(vec4(0.0, 0.0, 0.0, 0.0))
         to_scene: fn(c: vec3) -> vec3 { return c }
         oct_decode: fn(e: vec2f) -> vec3f {
             let nz = 1.0 - abs(e.x) - abs(e.y)
@@ -507,6 +546,41 @@ mod tests {
             let mut overrides = builtin::overrides(vm, Builtin::HookedCompose);
             overrides.extend(builtin::overrides(vm, Builtin::Ibl));
             let prog = material::build_program(vm, &material::ProgramRequest { base, kind: BaseKind::Pbr, hooks: &hooks, mask: HookMask::ALL, overrides: &overrides }).unwrap();
+            for backend in [ShaderBackend::Metal, ShaderBackend::Hlsl, ShaderBackend::Glsl, ShaderBackend::Wgsl] {
+                let errors = frontend_errors_for(vm, prog, backend);
+                assert!(errors.is_empty(), "{backend:?}: {errors:?}");
+            }
+            assert!(vm.take_errors().is_empty());
+        });
+    }
+
+    /// A vertex hook that reads the presser points compiles on every
+    /// backend with its shadow caster, and the points set on the draw are
+    /// what the hook reads.
+    #[test]
+    fn a_vertex_hook_reads_the_presser_points() {
+        with_vm(|vm| {
+            let obj = spec(vm, "test://press.splash", r#"
+                vertex: fn(p: vec3, n: vec3, uv: vec2) -> vec3 {
+                    let wp = (self.transform * vec4(p.x, p.y, p.z, 1.0)).xyz
+                    let d = wp - self.press0.xyz
+                    let k = 1.0 - smoothstep(0.0, max(self.press0.w, 0.001), length(d)) * step(0.001, self.press7.w + self.press0.w)
+                    return p * mix(0.4, 1.0, k)
+                }
+            "#);
+            let hooks = HookSet::from_spec(vm, obj, HookMask::ALL).unwrap();
+            let mut m = DrawSceneCustom::build(vm, &MaterialDesc::default(), &hooks, HookMask::ALL, Vec4f::default()).unwrap_or_else(|e| panic!("{e}"));
+            assert!(m.draw.draw_vars.can_instance());
+            assert!(m.shadow.is_some(), "the displaced caster: {:?}", m.warnings);
+            let mut points = [Vec4f::default(); PRESSERS];
+            points[0] = vec4(1.0, 2.0, 3.0, 0.6);
+            points[7] = vec4(-1.0, 0.0, 0.5, 0.3);
+            m.draw.set_pressers(vm.cx(), &points);
+            assert_eq!(m.draw.presser(vm.cx(), 0), points[0]);
+            assert_eq!(m.draw.presser(vm.cx(), 7), points[7]);
+            assert_eq!(m.draw.presser(vm.cx(), 3), Vec4f::default());
+            let base = vm.heap().type_default_for_id(DrawSceneCustom::script_type_id_static()).unwrap();
+            let prog = material::build_program(vm, &material::ProgramRequest { base, kind: BaseKind::Pbr, hooks: &hooks, mask: HookMask::ALL, overrides: &[] }).unwrap();
             for backend in [ShaderBackend::Metal, ShaderBackend::Hlsl, ShaderBackend::Glsl, ShaderBackend::Wgsl] {
                 let errors = frontend_errors_for(vm, prog, backend);
                 assert!(errors.is_empty(), "{backend:?}: {errors:?}");

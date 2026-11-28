@@ -410,6 +410,17 @@ impl Renderer {
         self.sky_alpha = alpha.clamp(0.0, 1.0);
     }
 
+    /// Up to [`crate::custom_material::PRESSERS`] points the custom
+    /// materials' hooks can read this frame as `self.press0` ..
+    /// `self.press7` (true world xyz, w a radius; w 0 = an empty slot):
+    /// characters walking through grass, a hand on water. Each custom
+    /// material draw carries them; the rest of the slots are emptied.
+    pub fn set_material_pressers(&mut self, points: &[Vec4f]) {
+        for (k, slot) in self.material_pressers.iter_mut().enumerate() {
+            *slot = points.get(k).copied().unwrap_or_default();
+        }
+    }
+
     /// Set the orbit-camera look-at depth the Realtime cascades tighten
     /// around. Pass `None` for first-person walk (village-scale ladder).
     pub fn set_csm_focus_distance(&mut self, focus: Option<f32>) {
