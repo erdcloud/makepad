@@ -518,8 +518,7 @@ impl Renderer {
                     }
                 }
             } else {
-                batch.skinned.fur = Default::default(); batch.skinned.fur_layer.x = 0.0;
-                batch.skinned.draw_vars.set_uniform(cx.cx,live_id!(surface_on),&[0.0]);batch.skinned.fur_layer.y=0.0;batch.skinned.draw_vars.options.alpha_blend=false;batch.skinned.draw_vars.options.depth_write=true;batch.skinned.draw_vars.options.backface_culling=true;
+                clear_part_material(cx.cx, &mut *batch.skinned);
             if batch.skinned.draw_vars.can_instance() {
                 // No material, no fur: nothing cuts a pixel.
                 batch.skinned.draw_vars.draw_shader_id = opaque.or(full);
@@ -584,6 +583,34 @@ impl Renderer {
     }
 }
 
+/// A character drawn without material parts after one drawn with them: the
+/// part uniforms back to the shader's defaults. The material loop writes
+/// `alpha_mode`, `material_alpha`, `alpha_cutoff`, the factors and the
+/// blend options per part; resetting only `surface_on` and the options left
+/// the previous character's last part in the uniforms, so after a blended
+/// part (`alpha_mode` 2) every plain character in the batch was shaded as a
+/// blended one (a custom pixel branching on `alpha_mode` drew it as its
+/// translucent copy).
+pub(super) fn clear_part_material(cx: &Cx, skinned: &mut DrawSceneSkinnedGpu) {
+    skinned.fur = Default::default();
+    skinned.fur_layer.x = 0.0;
+    skinned.fur_layer.y = 0.0;
+    let vars = &mut skinned.draw_vars;
+    vars.set_uniform(cx, live_id!(surface_on), &[0.0]);
+    vars.set_uniform(cx, live_id!(metallic), &[0.0]);
+    vars.set_uniform(cx, live_id!(roughness), &[1.0]);
+    vars.set_uniform(cx, live_id!(material_alpha), &[1.0]);
+    vars.set_uniform(cx, live_id!(alpha_mode), &[0.0]);
+    vars.set_uniform(cx, live_id!(alpha_cutoff), &[0.5]);
+    vars.set_uniform(cx, live_id!(normal_scale), &[0.0]);
+    vars.set_uniform(cx, live_id!(occlusion_strength), &[0.0]);
+    vars.set_uniform(cx, live_id!(emissive), &[0.0, 0.0, 0.0]);
+    vars.set_uniform(cx, live_id!(double_sided), &[0.0]);
+    vars.options.alpha_blend = false;
+    vars.options.depth_write = true;
+    vars.options.backface_culling = true;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -601,6 +628,47 @@ mod tests {
     /// again, the whole control is zero and the surface path keeps its
     /// hemisphere. The rig is the crate's own registration
     /// (`crate::script_mod`), as in `shaders::skin_ibl_tests`.
+    /// After a blended part the next plain character's part uniforms and
+    /// blend options are the shader's own defaults again
+    /// (`clear_part_material`).
+    #[test]
+    fn a_plain_character_after_a_blended_part_draws_plain() {
+        let mut cx = Cx::new(Box::new(|_, _| {}));
+        let (mut skin, fresh) = cx.with_vm(|vm| {
+            vm.capture_errors();
+            makepad_draw::script_mod(vm);
+            vm.heap_mut().new_module(id!(prelude));
+            script_eval!(vm, { mod.prelude.widgets_internal = { ..mod.std, ..mod.pod, ..mod.math, ..mod.sdf, ..mod.shader, draw:mod.draw } });
+            vm.heap_mut().new_module(id!(widgets));
+            crate::script_mod(vm);
+            let a = DrawSceneSkinnedGpu::script_new_with_default(vm);
+            let b = DrawSceneSkinnedGpu::script_new_with_default(vm);
+            let errors = vm.take_errors();
+            assert!(errors.is_empty(), "script errors: {errors:#?}");
+            (a, b)
+        });
+        let names = [live_id!(surface_on), live_id!(metallic), live_id!(roughness), live_id!(material_alpha), live_id!(alpha_mode), live_id!(alpha_cutoff), live_id!(normal_scale), live_id!(occlusion_strength), live_id!(emissive), live_id!(double_sided)];
+        let read = |cx: &Cx, s: &DrawSceneSkinnedGpu, id| {
+            let (offset, slots) = s.draw_vars.uniform_range(cx, id).expect("the uniform");
+            s.draw_vars.dyn_uniforms[offset..offset + slots].to_vec()
+        };
+        // a blended part's material, as the part loop writes it
+        let vars = &mut skin.draw_vars;
+        for (id, v) in [(live_id!(surface_on), 1.0f32), (live_id!(metallic), 0.4), (live_id!(roughness), 0.3), (live_id!(material_alpha), 0.6), (live_id!(alpha_mode), 2.0), (live_id!(alpha_cutoff), 0.2), (live_id!(normal_scale), 1.0), (live_id!(occlusion_strength), 1.0), (live_id!(double_sided), 1.0)] {
+            vars.set_uniform(&cx, id, &[v]);
+        }
+        vars.set_uniform(&cx, live_id!(emissive), &[0.5, 0.5, 0.5]);
+        vars.options.alpha_blend = true;
+        vars.options.depth_write = false;
+        vars.options.backface_culling = false;
+        assert_eq!(read(&cx, &skin, live_id!(alpha_mode))[0], 2.0, "premise: the blended part's mode");
+        clear_part_material(&cx, &mut skin);
+        for id in names {
+            assert_eq!(read(&cx, &skin, id), read(&cx, &fresh, id), "{id:?} back to the shader's default");
+        }
+        assert!(!skin.draw_vars.options.alpha_blend && skin.draw_vars.options.depth_write && skin.draw_vars.options.backface_culling, "the opaque options");
+    }
+
     #[test]
     fn the_skin_draw_carries_the_atlas_and_the_flag_only_under_an_environment() {
         let mut cx = Cx::new(Box::new(|_, _| {}));
